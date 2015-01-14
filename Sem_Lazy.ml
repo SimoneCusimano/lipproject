@@ -61,26 +61,85 @@ type exp =
 
 exception TypeMismatch of string;;
 
-let istrue b = if b!=0 then true else false;;
+let rec sem e (r, s) =
 
-let rec sem e (r, s) = match e with
-  Eint n -> n
-| Ebool b -> if b then 1 else 0
-| Echar c -> int_of_char c
-| Empty -> (-1) 
-| Sum (a,b) -> sem a (r,s)+sem b (r,s)
-| Prod (a,b) -> sem a (r,s)*sem b (r,s)
-| Diff (a,b) -> sem a (r,s)-sem b (r,s)
-| Div (a,b) -> if(sem b (r,s)!=0) then sem a (r,s)/sem b (r,s) else failwith "Divisione per Zero"
-| Mod (a,b) -> sem a (r,s) mod sem b (r,s)
-| Eqint (e1,e2) -> if sem e1 (r,s)=sem e2 (r,s) then 1 else 0
-| Lessint (e1,e2) -> if sem e1 (r,s)<sem e2 (r,s) then 1 else 0
-| Lesschar (c1,c2)-> if sem c1 (r,s)<sem c2 (r,s) then 1 else 0
-| Eqchar (e1,e2) -> if sem e1 (r,s)=sem e2 (r,s) then 1 else 0
-| Not e' -> if sem e' (r,s)=0 then 1 else 0
-| And (e1,e2) -> if sem e1 (r,s)=0 || sem e2 (r,s)=0 then 1 else 0
-| Or (e1,e2) -> if sem e1 (r,s)=0 && sem e2 (r,s)=0 then 1 else 0
-| Iszero e1 -> if sem e1 (r,s)=0 then 1 else 0
-| Den i -> int_of_string i
-| Ifthenelse(a,b,c) -> (match sem a (r, s) with x -> if x=0 then (sem b (r, s)) else (sem c (r, s)))
+ match e with
+  Eint n->Mint(n)
+ |Ebool b -> Mbool(b)
+ |Echar c ->Mchar(c)
+ |Sum (a,b)->  ( match sem a (r,s) , sem b (r,s) with
+     (Mint (a) , Mint(b) )-> Mint (a+b)
+   | _ -> raise (TypeMismatch "TypeMismatch"))
+ 
+ |Diff (a,b)->  ( match sem a (r,s) , sem b (r,s) with
+     (Mint (a) , Mint(b) )-> Mint (a-b)
+   | _ -> raise (TypeMismatch "TypeMismatch"))
+ 
+ |Prod (a,b)->  ( match sem a (r,s) , sem b (r,s) with
+    (Mint (a) , Mint(b) )-> Mint (a*b)
+   | _ -> raise (TypeMismatch "TypeMismatch"))
+
+ |Div (a,b)->  ( match sem a (r,s) , sem b (r,s) with
+     (Mint (a) , Mint(b) )-> Mint (a/b)
+   | _ -> raise (TypeMismatch "TypeMismatch"))
+
+ |Mod (a,b)->  ( match sem a (r,s) , sem b (r,s) with
+     (Mint (a) , Mint(b) )-> Mint (a mod b)
+   | _ -> raise (TypeMismatch "TypeMismatch"))
+
+ |Eqint (e1,e2) -> if sem e1 (r,s) = sem e2 (r,s) then Mbool(true) else Mbool(false)
+ 
+ |Lessint (e1,e2) ->  if sem e1 (r,s) < sem e2 (r,s) then Mbool(true) else Mbool(false)
+ 
+ |Lesschar (e1,e2) ->  if sem e1 (r,s) < sem e2 (r,s) then Mbool(true) else Mbool(false)
+ 
+ |Eqchar (e1,e2) ->  if sem e1 (r,s) = sem e2 (r,s) then Mbool(true) else Mbool(false)
+
+ |Iszero e1 -> let w= sem e1 (r,s) in if w=Mint(0) then Mbool(true) else Mbool(false)
+
+ | Not(x) -> (match sem x (r, s) with 
+       Mbool(true) -> Mbool(false) 
+  	 | Mbool(false) -> Mbool(true)
+     | _ -> raise (TypeMismatch "Errore di tipo"))
+
+ | And (a,b) -> (match sem a (r,s) , sem b (r,s) with 
+	   (Mbool (x1) , Mbool (x2)) -> Mbool(x1 && x2)
+	  | _ -> raise (TypeMismatch "Errore di tipo"))
+
+ | Or (a,b) -> (match sem a (r,s) , sem b(r,s) with
+  	 (Mbool (x1),Mbool (x2)) -> Mbool(x1 || x2)
+  	| _ -> raise (TypeMismatch "Errore di tipo"))
+
+ |Empty -> Mempty
+
+ |Ifthenelse (a,b,c) -> let w= sem a (r,s) in 
+     let x = sem b (r,s) in 
+     let y = sem c (r,s) in if w=Mbool(false) || w=Mbool(true) 
+     then if w=Mbool(true) then x else y else raise (TypeMismatch "Errore di tipo")		   
+ | Den x -> (match applyenv r x with 
+ | DVar (l,t) -> applystore s l
+ | DConstI c -> Mint(c)
+ | DConstB c -> Mbool(c)
+ | DConstC c -> Mchar(c)
+ | _ -> raise (UnboundIde x)
+ )
+
+ | Cons ( x1 , x2 ) -> Mpair (sem x1 (r,s) , sem x2 (r,s))
+
+ | Let(a,b)-> (match a with
+     (i,e)::[]->sem b (r,s)
+    |(i,e)::hd->sem (Let(hd,b)) (r,s)
+    |_ -> raise (TypeMismatch "Errore di tipo"))
+    
+
+ | Fun(z,e) ->(match z with
+   |i::[] ->sem e (r,s)
+   |i::hd -> sem (Fun(hd,e)) (r,s)
+   |_-> raise (TypeMismatch "Errore di tipo"))
+
+ |Apply(ex,ex2) ->(match ex2 with
+   |[]-> sem ex (r,s)
+   |ex2::hd -> sem(Apply(ex,hd))(r,s)
+   | _ -> raise (TypeMismatch "Errore di tipo"))
+
 ;;
