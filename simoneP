@@ -1,0 +1,215 @@
+type generic = A | B | C | D | E | F | G | H | I | L | M | N | O | P | Q | R | S | T | U | V | Z;;
+
+type typ =
+  
+| Int
+| Bool 
+| Char 
+| List of typ
+| Fun of typ list * typ
+| Gen of generic
+;;
+type mval =
+   Mint of int
+  |Mbool of bool
+  |Mchar of char
+  |Mlist of typ list
+  |Mfun of  typ list * typ
+  |Mgen of generic
+  |Mpair of mval * mval
+  |Mempty
+  ;;
+
+(************************************************************)
+(*                           ENVIRONMENT                    *)
+(************************************************************)
+
+
+type ide = string;;
+
+
+let rec find p f = function
+    [] -> Mempty
+  | x::l -> if p x then f x else find p f l;;
+
+
+let rec bind x v = function
+    [] -> [(x,v)]
+  | (y,v')::l when x=y -> (x,v)::l
+  | (y,v')::l -> (y,v')::(bind x v l);;
+
+let applyenv env x = (find (fun (y,v) -> x=y) (fun (y,v) -> v)) env;;
+
+
+
+type exp =
+Eint of int
+| Ebool of bool
+| Echar of char
+| Empty
+| Cons of exp * exp
+| Den of ide
+| Prod of exp * exp
+| Sum of exp * exp
+| Diff of exp * exp
+| Mod of exp * exp
+| Div of exp * exp
+| Lessint of exp * exp
+| Eqint of exp * exp
+| Iszero of exp
+| Lesschar of exp * exp
+| Eqchar of exp * exp
+| Or of exp * exp
+| And of exp * exp
+| Not of exp
+| Ifthenelse of exp * exp * exp 
+| Let of (ide * exp) list * exp (*([(ide,exp)],exp) *)
+| Fun of ide list * exp
+| Apply of exp * exp list
+;;
+
+exception TypeMismatch of string;;
+
+(************************************************************)
+(*                           TYPE_INF                       *)
+(************************************************************)
+let rec type_inf e = match e with
+   Eint n -> Int
+  |Ebool b -> Bool
+  |Echar c -> Char
+  |Empty -> Gen(Z)
+  |Den x -> Gen(A)
+  |Cons (e1,e2) -> let t1 = type_inf e1 in
+                   let t2 = type_inf e2 in 
+		   if t1=t2 then (List t1)
+		   else if (List t1)=t2 then (List t1)
+		        else if t1=(List t2) then (List t2)
+                             else if t1=Gen(Z) && t2!=Gen(Z) then (List t2)
+                                  else if t1!=Gen(Z) && t2=Gen(Z) then (List t1)
+                                       else if t1=List(Gen(Z)) && t2!=List(Gen(Z)) then (List t2)
+                                            else if t1!=List(Gen(Z)) && t2=List(Gen(Z)) then (List t1)
+                                                 else failwith "Invalid list" 
+  |Prod (e1,e2)
+  |Sum (e1,e2)
+  |Diff (e1,e2)
+  |Mod (e1,e2)
+  |Div (e1,e2) -> let t1 = type_inf e1 in
+                  let t2 = type_inf e2 in
+		  if t1=t2 && t1=Int then Int 
+		  else failwith "Invalid types"
+  |Lessint (e1,e2)
+  |Eqint (e1,e2) -> let t1 = type_inf e1 in
+                    let t2 = type_inf e2 in
+		    if t1=t2 && t1=Int then Bool 
+		    else failwith "Invalid types"
+  |Lesschar (e1,e2)
+  |Eqchar (e1,e2) -> let t1 = type_inf e1 in
+                     let t2 = type_inf e2 in
+		     if t1=t2 && t1=Char then Bool 
+		     else failwith "Invalid types"
+  |Iszero e -> let t1 = type_inf e in 
+	       if t1=Int then Bool 
+	       else failwith "Invalid types"
+  |And (e1,e2)
+  |Or (e1,e2) -> let t1 = type_inf e1 in
+                 let t2 = type_inf e2 in 
+		 if t1=t2 && t1=Bool then Bool 
+		 else failwith "Invalid types"
+  |Not e -> let t1 = type_inf e in 
+	    if t1=Bool then Bool 
+	    else failwith "Invalid type"
+  |Ifthenelse (e0,e1,e2) -> let t0 = type_inf e0 in
+                            let t1 = type_inf e1 in
+                            let t2 = type_inf e2 in
+			    if t0=Bool && t1=t2 then t1 
+			    else failwith "Invalid types"
+  |Let (x,e1) -> let t1 = type_inf e1 in t1
+  |Fun (idel,e1) -> let t1 = type_inf e1 in 
+		    let param = List.map (fun a -> type_inf (Den(a))) idel in Fun(param,t1)
+  |Apply (e1,el) -> let t1 = type_inf e1 in t1;;
+
+
+(************************************************************)
+(*                           EXPRESSIONS                    *)
+(************************************************************)
+
+
+type env = (ide*mval) list;;
+
+
+let rec sem (e:exp) (r:env) =
+
+ match e with
+  Eint n->Mint(n)
+ |Ebool b -> Mbool(b)
+ |Echar c ->Mchar(c)
+ |Sum (a,b)->  ( match sem a r , sem b r with
+     (Mint (a) , Mint(b) )-> Mint (a+b)
+   | _ -> raise (TypeMismatch "TypeMismatch"))
+ 
+ |Diff (a,b)->  ( match sem a r , sem b r with
+     (Mint (a) , Mint(b) )-> Mint (a-b)
+   | _ -> raise (TypeMismatch "TypeMismatch"))
+ 
+ |Prod (a,b)->  ( match sem a r , sem b r with
+    (Mint (a) , Mint(b) )-> Mint (a*b)
+   | _ -> raise (TypeMismatch "TypeMismatch"))
+
+ |Div (a,b)->  ( match sem a r , sem b r with
+     (Mint (a) , Mint(b) )-> Mint (a/b)
+   | _ -> raise (TypeMismatch "TypeMismatch"))
+
+ |Mod (a,b)->  ( match sem a r , sem b r with
+     (Mint (a) , Mint(b) )-> Mint (a mod b)
+   | _ -> raise (TypeMismatch "TypeMismatch"))
+
+ |Eqint (e1,e2) -> if sem e1 r = sem e2 r then Mbool(true) else Mbool(false)
+ 
+ |Lessint (e1,e2) ->  if sem e1 r < sem e2 r then Mbool(true) else Mbool(false)
+ 
+ |Lesschar (e1,e2) ->  if sem e1 r < sem e2 r then Mbool(true) else Mbool(false)
+ 
+ |Eqchar (e1,e2) ->  if sem e1 r = sem e2 r then Mbool(true) else Mbool(false)
+
+ |Iszero e1 -> let w= sem e1 r in if w=Mint(0) then Mbool(true) else Mbool(false)
+
+ | Not(x) -> (match sem x r with 
+       	  Mbool(true) -> Mbool(false) 
+  	| Mbool(false) -> Mbool(true)
+        | _ -> raise (TypeMismatch "Errore di tipo"))
+
+ | And (a,b) -> (match sem a r , sem b r with 
+				(Mbool (x1) , Mbool (x2)) -> Mbool(x1 && x2)
+  				| _ -> raise (TypeMismatch "Errore di tipo"))
+
+ | Or (a,b) -> (match sem a r , sem b r with
+  				(Mbool (x1),Mbool (x2)) -> Mbool(x1 || x2)
+  				| _ -> raise (TypeMismatch "Errore di tipo"))
+
+ |Empty -> Mempty
+
+ |Ifthenelse (a,b,c) -> let w= sem a r in 
+     let x = sem b r in 
+     let y = sem c r in if w=Mbool(false) || w=Mbool(true) 
+     then if w=Mbool(true) then x else y else raise (TypeMismatch "Errore di tipo")		   
+ | Den x -> (applyenv r x)
+
+ | Cons ( x1 , x2 ) -> Mpair (sem x1 r , sem x2 r)
+
+ | Let(a,b)-> (match a with
+     (i,e)::[]->sem b r
+    |(i,e)::hd ->sem b(bind i (sem e r)r)
+    |_ -> raise (TypeMismatch "Errore di tipo"))
+    
+
+(* | Fun(z,e) ->(match z with
+   |i::[] ->failwith"sbuidu"
+   |i::hd -> sem e(bind i r)
+   |_-> raise (TypeMismatch "Errore di tipo"))
+
+ |Apply(ex,ex2) ->(match ex2 with
+   |[]-> sem ex r
+   |ex2::hd -> sem(Apply(ex,hd)) r
+   | _ -> raise (TypeMismatch "Errore di tipo"))*)
+
+;;
